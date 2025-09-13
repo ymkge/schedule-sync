@@ -1,10 +1,98 @@
-# Schedule Sync Application
+# Schedule Sync (スケジュール同期アプリ) 
 
-This repository contains the source code for the Schedule Sync application, a service similar to Spir.
+Schedule Syncは、CalendlyやSpirのような日程調整アプリケーションです。あなたのGoogleカレンダーと連携し、空き時間を自動的に見つけ出し、他の人が簡単に会議を予約できるユニークな共有リンクを提供します。
 
-## Overview
+## 主な機能
 
-- **Frontend:** Next.js application located in the `/frontend` directory.
-- **Backend:** FastAPI (Python) application located in the `/backend` directory.
+- **Googleカレンダー連携**: OAuth 2.0を使用して、安全にGoogleカレンダーに接続します。
+- **空き時間の自動生成**: カレンダーの予定やあらかじめ設定した稼働時間に基づき、予約可能な時間枠を自動で計算します。
+- **共有可能な予約リンク**: あなた専用の予約ページのユニークなURLを生成します。
+- **ワンクリック予約**: 面倒なやり取りなしに、数クリックで予約が完了します。
+- **会議リンクの自動発行**: 予約されたイベントごとに、Google Meetの会議リンクが自動で作成されます。
+- **ダブルブッキング防止**: ある時間枠が予約されると、他の人が同じ時間を予約することはできません。
 
-Refer to the README files within each directory for specific instructions on running the services.# schedule-sync
+## 技術スタック
+
+- **フロントエンド**: Next.js, React, TypeScript, Tailwind CSS
+- **バックエンド**: Python, FastAPI
+- **データベース**: Google Cloud Firestore
+- **API・認証**: Google Calendar API, Google People API, Google OAuth 2.0
+- **デプロイ環境 (計画)**: Docker, Google Cloud Run
+
+## プロジェクト構造
+
+```
+/schedule-sync
+├── /backend/      # FastAPI アプリケーション (バックエンド)
+└── /frontend/     # Next.js アプリケーション (フロントエンド)
+```
+
+## ローカル開発環境のセットアップ
+
+### 前提条件
+
+- Node.js (v18 以上)
+- Python (v3.9 以上)
+- Google Cloud プロジェクト
+- `gcloud` CLI がインストール・認証済みであること
+
+### 1. バックエンドのセットアップ
+
+1.  **バックエンドディレクトリに移動します:**
+    ```bash
+    cd backend
+    ```
+
+2.  **必要なライブラリをインストールします:**
+    ```bash
+    pip install -r requirements.txt
+    ```
+
+3.  **Google Cloudの認証情報を設定します:**
+    - Google Cloudコンソールで、「ウェブアプリケーション」用の **OAuth 2.0 クライアント ID** を作成します。
+    - 「承認済みのリダイレクト URI」に `http://localhost:8080/api/auth/callback` を追加します。
+    - 発行された `クライアント ID` と `クライアント シークレット` を控えておきます。
+
+4.  **環境変数を設定します:**
+    - `.env.example` をコピーして `.env` ファイルを作成します: `cp .env.example .env`
+    - `.env` ファイルに、先ほど取得したGoogleのクライアントID、シークレット、そしてユニークな `SECRET_KEY` を設定します。
+
+5.  **アプリケーションのデフォルト認証情報を設定します:**
+    これにより、バックエンドがFirestoreなどのGoogle Cloudサービスにアクセスできるようになります。
+    ```bash
+    gcloud auth application-default login
+    ```
+
+6.  **バックエンドサーバーを起動します:**
+    ```bash
+    uvicorn main:app --reload --port 8080
+    ```
+
+### 2. フロントエンドのセットアップ
+
+1.  **フロントエンドディレクトリに移動します:**
+    ```bash
+    cd frontend
+    ```
+
+2.  **必要なライブラリをインストールします:**
+    ```bash
+    npm install
+    ```
+
+3.  **フロントエンドサーバーを起動します:**
+    ```bash
+    npm run dev
+    ```
+    アプリケーションが `http://localhost:3000` で利用可能になります。
+
+## 利用方法
+
+1.  **ログイン**: トップページにアクセスし、Googleアカウントでログインします。
+2.  **カレンダー同期**: ログイン後、ダッシュボード（今後実装予定）でカレンダーを同期し、予約可能なスロットを生成します。
+3.  **リンク共有**: あなた専用の予約リンク（例: `http://localhost:3000/<あなたの公開トークン>`）を他の人に共有します。
+4.  **予約受付**: 共有された相手はリンクにアクセスし、空いている時間を選んで予約します。予約内容は自動的にあなたのGoogleカレンダーに登録されます。
+
+## ライセンス
+
+このプロジェクトは **MITライセンス** の下で公開されています。詳細は [LICENSE](LICENSE) ファイルをご覧ください。
