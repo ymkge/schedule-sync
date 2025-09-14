@@ -1,6 +1,6 @@
 import os
 import base64
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request, RedirectResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from dotenv import load_dotenv
@@ -422,6 +422,6 @@ def auth_callback(request: Request):
         raise HTTPException(status_code=500, detail=f"An error occurred during data processing: {e}")
 
     # In a real app, you would redirect the user back to the frontend with a session token.
-    return {"message": f"Authentication successful for {user_email}. User data saved."}
+    return RedirectResponse(url="http://localhost:3000")
 
 # ... (Placeholder endpoints remain the same) ...
