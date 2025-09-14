@@ -1,6 +1,7 @@
 import os
 import base64
-from fastapi import FastAPI, HTTPException, Request, RedirectResponse
+from fastapi import FastAPI, HTTPException, Request
+from starlette.responses import RedirectResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from dotenv import load_dotenv
