@@ -418,7 +418,6 @@ def auth_callback(request: Request):
             user_data['slotConfig'] = {'durationMinutes': 30, 'eventName': 'Meeting'}
 
         user_ref.set(user_data, merge=True)
-        print(f"Successfully saved user data for {user_email} to Firestore.")
 
         # Create access token
         access_token_expires = timedelta(minutes=60) # Token expires in 60 minutes
