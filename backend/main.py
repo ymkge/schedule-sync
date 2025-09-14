@@ -1,6 +1,7 @@
 import os
 import base64
 from fastapi import FastAPI, HTTPException, Request
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from dotenv import load_dotenv
 
@@ -14,7 +15,22 @@ from cryptography.fernet import Fernet
 # Load environment variables from .env file
 load_dotenv()
 
+print(f"DEBUG: Loaded SECRET_KEY from .env: {os.getenv('SECRET_KEY')}")
+
 app = FastAPI()
+
+# --- CORS Middleware ---
+origins = [
+    "http://localhost:3000", # React frontend
+]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,
+    allow_credentials=True,
+    allow_methods=["*"], # Allows all methods
+    allow_headers=["*"], # Allows all headers
+)
 
 # --- Firestore Client ---
 try:
@@ -35,8 +51,7 @@ SECRET_KEY = os.getenv("SECRET_KEY")
 # Generate with: python -c "import base64, os; print(base64.urlsafe_b64encode(os.urandom(32)).decode())"
 try:
     if SECRET_KEY:
-        fernet_key = base64.urlsafe_b64decode(SECRET_KEY)
-        f_key = Fernet(fernet_key)
+        f_key = Fernet(SECRET_KEY.encode())
     else:
         f_key = None
         print("CRITICAL: SECRET_KEY is not set. Encryption is disabled.")
@@ -356,9 +371,12 @@ def auth_login():
     if not client_config:
         raise HTTPException(status_code=500, detail="Server is not configured for Google OAuth.")
     
+    print(f"DEBUG: Using REDIRECT_URI: {REDIRECT_URI}")
     flow = Flow.from_client_config(client_config, scopes=SCOPES, redirect_uri=REDIRECT_URI)
     authorization_url, state = flow.authorization_url(
         access_type='offline', prompt='consent', include_granted_scopes='true')
+    
+    print(f"DEBUG: Generated Authorization URL: {authorization_url}")
     return {"authorization_url": authorization_url}
 
 @app.get("/api/auth/callback")
