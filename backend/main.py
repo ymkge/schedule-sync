@@ -12,6 +12,8 @@ from google.auth.transport import requests as google_requests
 from google_auth_oauthlib.flow import Flow
 from google.oauth2.credentials import Credentials
 from cryptography.fernet import Fernet
+import jwt
+from datetime import datetime, timedelta
 
 # Load environment variables from .env file
 load_dotenv()
@@ -389,6 +391,7 @@ def auth_callback(request: Request):
     try:
         flow.fetch_token(authorization_response=str(request.url))
     except Exception as e:
+        print(f"ERROR in fetch_token: {e}")
         raise HTTPException(status_code=400, detail=f"Failed to fetch token: {e}")
 
     credentials = flow.credentials
@@ -417,12 +420,21 @@ def auth_callback(request: Request):
         user_ref.set(user_data, merge=True)
         print(f"Successfully saved user data for {user_email} to Firestore.")
 
+        # Create access token
+        access_token_expires = timedelta(minutes=60) # Token expires in 60 minutes
+        access_token = jwt.encode(
+            {"sub": user_id, "exp": datetime.utcnow() + access_token_expires},
+            SECRET_KEY,
+            algorithm="HS256"
+        )
+
+        # Redirect to frontend with token in URL query parameter
+        redirect_url = f"http://localhost:3000/?token={access_token}"
+        return RedirectResponse(url=redirect_url)
+
     except ValueError as e:
         raise HTTPException(status_code=401, detail=f"Invalid token: {e}")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"An error occurred during data processing: {e}")
-
-    # In a real app, you would redirect the user back to the frontend with a session token.
-    return RedirectResponse(url="http://localhost:3000")
 
 # ... (Placeholder endpoints remain the same) ...
