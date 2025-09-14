@@ -33,8 +33,9 @@ Schedule Syncは、CalendlyやSpirのような日程調整アプリケーショ�
 
 - Node.js (v18 以上)
 - Python (v3.9 以上)
-- Google Cloud プロジェクト
+- Google Cloud プロジェクトが作成済みであること
 - `gcloud` CLI がインストール・認証済みであること
+- Google Cloud プロジェクトで **Cloud Firestore API が有効化済み** であること
 
 ### 1. バックエンドのセットアップ
 
@@ -55,20 +56,40 @@ Schedule Syncは、CalendlyやSpirのような日程調整アプリケーショ�
 
 4.  **環境変数を設定します:**
     - `.env.example` をコピーして `.env` ファイルを作成します: `cp .env.example .env`
-    - `.env` ファイルに、先ほど取得したGoogleのクライアントID、シークレット、そしてユニークな `SECRET_KEY` を設定します。
+    - `.env` ファイルを以下のように編集します:
+        - `GOOGLE_CLIENT_ID` と `GOOGLE_CLIENT_SECRET` に、先ほど取得した値を設定します。
+        - `SECRET_KEY` の値を、ターミナルで以下のコマンドを実行して生成されたキーに置き換えます。
+          ```bash
+          python3 -c "import base64, os; print(base64.urlsafe_b64encode(os.urandom(32)).decode())"
+          ```
+        - ローカル開発で `http://` を使うために、ファイルの末尾に以下の行を追加します。
+          ```
+          OAUTHLIB_INSECURE_TRANSPORT=1
+          ```
 
 5.  **アプリケーションのデフォルト認証情報を設定します:**
     これにより、バックエンドがFirestoreなどのGoogle Cloudサービスにアクセスできるようになります。
     ```bash
     gcloud auth application-default login
     ```
+    - **[トラブルシューティング]** もし後の手順で `Project was not passed` というエラーが出た場合は、`gcloud config set project YOUR_PROJECT_ID` を実行して、使用するプロジェクトを明示的に設定してください。
 
-6.  **バックエンドサーバーを起動します:**
+6.  **Firestore データベースを作成します:**
+    - 初回セットアップ時のみ、データを保存するためのデータベースを作成する必要があります。
+    - [こちらのリンク](https://console.cloud.google.com/firestore) から、あなたのプロジェクトのFirestoreページを開きます。
+    - 「データベースの作成」をクリックします。
+    - **モード**: 「**ネイティブ モード**」を選択します。
+    - **ロケーション**: 「**asia-northeast1 (Tokyo)**」など、任意の場所を選択します。
+    - 「データベースを作成」をクリックします。
+
+7.  **バックエンドサーバーを起動します:**
     ```bash
     uvicorn main:app --reload --port 8080
     ```
 
 ### 2. フロントエンドのセットアップ
+
+(フロントエンドのセットアップ手順は変更ありません)
 
 1.  **フロントエンドディレクトリに移動します:**
     ```bash
