@@ -6,6 +6,7 @@ import axios from 'axios';
 export default function Home() {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [userName, setUserName] = useState(''); // Optional: to display user name
+  const [syncStatus, setSyncStatus] = useState(''); // To show sync status message
 
   useEffect(() => {
     // 1. Check for token in URL after redirect from Google login
@@ -43,22 +44,68 @@ export default function Home() {
   const handleLogout = () => {
     localStorage.removeItem('jwt_token');
     setIsLoggedIn(false);
+    setSyncStatus(''); // Clear sync status on logout
+  };
+
+  const handleSync = async () => {
+    setSyncStatus('Synchronizing, please wait...');
+    const token = localStorage.getItem('jwt_token');
+
+    if (!token) {
+      setSyncStatus('Authentication error. Please log in again.');
+      return;
+    }
+
+    try {
+      const response = await axios.post(
+        `${process.env.NEXT_PUBLIC_API_BASE_URL}/api/user/me/slots`,
+        {}, // Empty body, as user_id is now from the token
+        {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        }
+      );
+      setSyncStatus(response.data.message || 'Synchronization completed successfully!');
+    } catch (error) {
+      console.error('Error during calendar sync:', error);
+      if (axios.isAxiosError(error) && error.response) {
+        setSyncStatus(`Error: ${error.response.data.detail || 'Failed to synchronize.'}`);
+      } else {
+        setSyncStatus('An unexpected error occurred during synchronization.');
+      }
+    }
   };
 
   // Render different content based on login state
   if (isLoggedIn) {
     return (
       <main className="flex min-h-screen flex-col items-center justify-center p-24 bg-gray-50">
-        <div className="text-center p-8 bg-white shadow-lg rounded-xl">
+        <div className="text-center p-8 bg-white shadow-lg rounded-xl max-w-md w-full">
           <h1 className="text-4xl font-bold mb-6 text-gray-800">Login Successful!</h1>
           <p className="text-lg mb-8 text-gray-600">Welcome to Schedule Sync.</p>
-          {/* In a real app, you would have links to a dashboard or other pages here */}
-          <button
-            onClick={handleLogout}
-            className="bg-red-600 hover:bg-red-700 text-white font-bold py-3 px-6 rounded-lg shadow-md hover:shadow-lg transition duration-300 ease-in-out"
-          >
-            Logout
-          </button>
+          
+          <div className="space-y-4">
+            <button
+              onClick={handleSync}
+              className="bg-green-600 hover:bg-green-700 text-white font-bold py-3 px-6 rounded-lg shadow-md hover:shadow-lg transition duration-300 ease-in-out w-full"
+            >
+              カレンダーを同期する (Sync Calendar)
+            </button>
+            
+            <button
+              onClick={handleLogout}
+              className="bg-red-600 hover:bg-red-700 text-white font-bold py-3 px-6 rounded-lg shadow-md hover:shadow-lg transition duration-300 ease-in-out w-full"
+            >
+              Logout
+            </button>
+          </div>
+
+          {syncStatus && (
+            <p className="mt-6 text-md text-gray-700 bg-gray-100 p-3 rounded-lg">
+              {syncStatus}
+            </p>
+          )}
         </div>
       </main>
     );

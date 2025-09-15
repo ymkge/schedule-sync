@@ -1,6 +1,6 @@
 import os
 import base64
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request, Depends
 from starlette.responses import RedirectResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -11,9 +11,14 @@ from google.oauth2 import id_token
 from google.auth.transport import requests as google_requests
 from google_auth_oauthlib.flow import Flow
 from google.oauth2.credentials import Credentials
+from googleapiclient.discovery import build
+from googleapiclient.errors import HttpError
 from cryptography.fernet import Fernet
 import jwt
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, time
+import pytz
+
+from auth import get_current_user
 
 # Load environment variables from .env file
 load_dotenv()
@@ -198,21 +203,16 @@ def create_booking(req: BookingRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"An unexpected error occurred: {e}")
 
-
-class UserRequest(BaseModel):
-    user_id: str
-
 # --- API Endpoints ---
 @app.post("/api/user/me/slots")
-def generate_user_slots(req: UserRequest):
+def generate_user_slots(user_id: str = Depends(get_current_user)):
     """
     Generates available time slots for a given user by fetching their Google Calendar.
     """
     if not db:
         raise HTTPException(status_code=500, detail="Firestore client not available.")
 
-    # In a real app, user_id would come from a secure session/JWT, not the request body.
-    user_ref = db.collection('users').document(req.user_id)
+    user_ref = db.collection('users').document(user_id)
     user_doc = user_ref.get()
 
     if not user_doc.exists:
@@ -314,15 +314,15 @@ def generate_user_slots(req: UserRequest):
 
         # --- Step 5: Save the generated slots to Firestore ---
         slots_data = {
-            'userId': req.user_id,
+            'userId': user_id,
             'slots': available_slots,
             'updatedAt': firestore.SERVER_TIMESTAMP
         }
-        db.collection('slots').document(req.user_id).set(slots_data)
+        db.collection('slots').document(user_id).set(slots_data)
 
         return {
             "message": f"Successfully generated and saved {len(available_slots)} available slots.",
-            "user_id": req.user_id,
+            "user_id": user_id,
         }
 
     except HttpError as error:
@@ -421,8 +421,15 @@ def auth_callback(request: Request):
 
         # Create access token
         access_token_expires = timedelta(minutes=60) # Token expires in 60 minutes
+        now = datetime.utcnow()
+        payload = {
+            "sub": user_id,
+            "exp": now + access_token_expires,
+            "iat": now,
+            "nbf": now - timedelta(seconds=10) # 10 seconds in the past to avoid clock skew issues
+        }
         access_token = jwt.encode(
-            {"sub": user_id, "exp": datetime.utcnow() + access_token_expires},
+            payload,
             SECRET_KEY,
             algorithm="HS256"
         )
