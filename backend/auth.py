@@ -35,7 +35,7 @@ def get_current_user(token: str = Depends(oauth2_scheme)):
         if SECRET_KEY is None:
             raise ValueError("SECRET_KEY is not set in the environment.")
             
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM], leeway=10) # Add 10-second leeway for clock skew
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM], leeway=10)
         user_id: str = payload.get("sub")
         if user_id is None:
             raise credentials_exception
@@ -55,4 +55,3 @@ def get_current_user(token: str = Depends(oauth2_scheme)):
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Server configuration error",
         )
-

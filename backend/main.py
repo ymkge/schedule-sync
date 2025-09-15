@@ -1,5 +1,6 @@
 import os
 import base64
+import time
 from fastapi import FastAPI, HTTPException, Request, Depends
 from starlette.responses import RedirectResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -15,15 +16,13 @@ from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 from cryptography.fernet import Fernet
 import jwt
-from datetime import datetime, timedelta, time
+from datetime import datetime, timedelta, time as dt_time
 import pytz
 
 from auth import get_current_user
 
 # Load environment variables from .env file
 load_dotenv()
-
-print(f"DEBUG: Loaded SECRET_KEY from .env: {os.getenv('SECRET_KEY')}")
 
 app = FastAPI()
 
@@ -55,8 +54,6 @@ REDIRECT_URI = os.getenv("REDIRECT_URI")
 SECRET_KEY = os.getenv("SECRET_KEY")
 
 # --- Encryption ---
-# SECRET_KEY must be a 32-byte URL-safe base64-encoded string.
-# Generate with: python -c "import base64, os; print(base64.urlsafe_b64encode(os.urandom(32)).decode())"
 try:
     if SECRET_KEY:
         f_key = Fernet(SECRET_KEY.encode())
@@ -101,9 +98,6 @@ class BookingRequest(BaseModel):
 
 @firestore.transactional
 def book_slot_in_transaction(transaction, slots_ref, slot_id):
-    """
-    Atomically checks and updates a slot's status within a transaction.
-    """
     snapshot = slots_ref.get(transaction=transaction)
     if not snapshot.exists:
         raise FileNotFoundError("Slots document not found.")
@@ -134,7 +128,6 @@ def create_booking(req: BookingRequest):
         raise HTTPException(status_code=500, detail="Firestore client not available.")
 
     try:
-        # Step 1: Find user by public token
         users_ref = db.collection('users')
         query = users_ref.where(filter=firestore.FieldFilter("publicUrlToken", "==", req.publicUrlToken)).limit(1)
         user_results = list(query.stream())
@@ -145,12 +138,10 @@ def create_booking(req: BookingRequest):
         host_user_id = host_user_doc.id
         host_user_data = host_user_doc.to_dict()
 
-        # Step 2: Atomically book the slot in Firestore
         slots_ref = db.collection('slots').document(host_user_id)
         transaction = db.transaction()
         booked_slot = book_slot_in_transaction(transaction, slots_ref, req.slotId)
 
-        # Step 3: Create Google Calendar event
         creds = Credentials(
             token=decrypt_token(host_user_data.get('encryptedAccessToken')),
             refresh_token=decrypt_token(host_user_data.get('encryptedRefreshToken')),
@@ -184,7 +175,6 @@ def create_booking(req: BookingRequest):
 
         created_event = service.events().insert(calendarId='primary', body=event_body, conferenceDataVersion=1).execute()
 
-        # Step 4: Record the booking
         booking_id = created_event.get('id')
         db.collection('bookings').document(booking_id).set({
             'bookingId': booking_id,
@@ -203,12 +193,9 @@ def create_booking(req: BookingRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"An unexpected error occurred: {e}")
 
-# --- API Endpoints ---
+
 @app.post("/api/user/me/slots")
 def generate_user_slots(user_id: str = Depends(get_current_user)):
-    """
-    Generates available time slots for a given user by fetching their Google Calendar.
-    """
     if not db:
         raise HTTPException(status_code=500, detail="Firestore client not available.")
 
@@ -220,14 +207,12 @@ def generate_user_slots(user_id: str = Depends(get_current_user)):
 
     user_data = user_doc.to_dict()
     
-    # Decrypt tokens
     access_token = decrypt_token(user_data.get('encryptedAccessToken'))
     refresh_token = decrypt_token(user_data.get('encryptedRefreshToken'))
 
     if not access_token:
         raise HTTPException(status_code=400, detail="User has no access token.")
 
-    # Rebuild credentials from stored tokens
     creds = Credentials(
         token=access_token,
         refresh_token=refresh_token,
@@ -238,38 +223,30 @@ def generate_user_slots(user_id: str = Depends(get_current_user)):
     )
 
     try:
-        # Build the Google Calendar service
         service = build('calendar', 'v3', credentials=creds)
 
-        # Define the time range for the next 3 weeks
         now = datetime.utcnow()
-        time_min = now.isoformat() + 'Z'  # 'Z' indicates UTC time
-        time_max = (now + timedelta(days=21)).isoformat() + 'Z'
+        time_min = now.isoformat() + 'Z'
+        time_max = (now + timedelta(days=14)).isoformat() + 'Z'
 
         free_busy_body = {
             "timeMin": time_min,
             "timeMax": time_max,
             "timeZone": "UTC",
-            "items": [{"id": "primary"}] # Check the user's primary calendar
+            "items": [{"id": "primary"}]
         }
 
-        # --- Step 1: Fetch busy intervals from Google Calendar ---
         results = service.freebusy().query(body=free_busy_body).execute()
         busy_intervals_raw = results['calendars']['primary']['busy']
 
-        # --- Step 2: Define working hours and slot duration ---
-        # TODO: Make this configurable per user
         working_hours = {
-            'start': time(9, 0), 
-            'end': time(17, 0)
+            'start': dt_time(9, 0), 
+            'end': dt_time(17, 0)
         }
-        # Weekdays: 0=Monday, 1=Tuesday, ..., 6=Sunday
-        working_days = [0, 1, 2, 3, 4] 
+        working_days = [0, 1, 2, 3, 4]
         slot_duration = timedelta(minutes=30)
-        user_timezone = pytz.timezone('Asia/Tokyo') # TODO: Make this configurable
+        user_timezone = pytz.timezone('Asia/Tokyo')
 
-        # --- Step 3: Parse busy intervals into datetime objects ---
-        # Python < 3.11 doesn't support 'Z' suffix for UTC timezone, so we replace it.
         busy_times = []
         for interval in busy_intervals_raw:
             start_str = interval['start'].replace('Z', '+00:00')
@@ -279,17 +256,14 @@ def generate_user_slots(user_id: str = Depends(get_current_user)):
                 'end': datetime.fromisoformat(end_str)
             })
 
-        # --- Step 4: Generate all potential slots and filter them ---
         available_slots = []
         today = datetime.now(user_timezone).date()
-        for i in range(14): # For the next 2 weeks
+        for i in range(14):
             current_day = today + timedelta(days=i)
             
-            # Skip non-working days
             if current_day.weekday() not in working_days:
                 continue
 
-            # Generate potential slots for the day
             day_start = user_timezone.localize(datetime.combine(current_day, working_hours['start']))
             day_end = user_timezone.localize(datetime.combine(current_day, working_hours['end']))
             
@@ -297,17 +271,15 @@ def generate_user_slots(user_id: str = Depends(get_current_user)):
             while potential_slot_start + slot_duration <= day_end:
                 potential_slot_end = potential_slot_start + slot_duration
                 
-                # Check for overlap with busy times
                 is_busy = False
                 for busy in busy_times:
                     if potential_slot_start < busy['end'] and potential_slot_end > busy['start']:
                         is_busy = True
                         break
                 
-                # If not busy and the slot is in the future, add it
                 if not is_busy and potential_slot_start > datetime.now(user_timezone):
                     available_slots.append({
-                        'slotId': potential_slot_start.isoformat(), # Use start time as unique ID
+                        'slotId': potential_slot_start.isoformat(),
                         'startTime': potential_slot_start.isoformat(),
                         'endTime': potential_slot_end.isoformat(),
                         'status': 'available'
@@ -315,7 +287,6 @@ def generate_user_slots(user_id: str = Depends(get_current_user)):
                 
                 potential_slot_start += slot_duration
 
-        # --- Step 5: Save the generated slots to Firestore ---
         slots_data = {
             'userId': user_id,
             'slots': available_slots,
@@ -334,17 +305,13 @@ def generate_user_slots(user_id: str = Depends(get_current_user)):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"An unexpected error occurred: {e}")
 
+
 @app.get("/api/slots/public/{token}")
 def get_public_slots(token: str):
-    """
-    Fetches available slots for a user via their public URL token.
-    NOTE: This requires a Firestore index on the 'publicUrlToken' field.
-    """
     if not db:
         raise HTTPException(status_code=500, detail="Firestore client not available.")
 
     try:
-        # Query the users collection to find the user with the matching token
         users_ref = db.collection('users')
         query = users_ref.where(filter=firestore.FieldFilter("publicUrlToken", "==", token)).limit(1)
         results = list(query.stream())
@@ -355,7 +322,6 @@ def get_public_slots(token: str):
         user_doc = results[0]
         user_id = user_doc.id
 
-        # Fetch the slots for that user
         slots_ref = db.collection('slots').document(user_id)
         slots_doc = slots_ref.get()
 
@@ -371,19 +337,17 @@ def get_public_slots(token: str):
         raise HTTPException(status_code=500, detail=f"An error occurred: {e}")
 
 
-# --- API Endpoints ---
 @app.get("/api/auth/login")
 def auth_login():
     if not client_config:
         raise HTTPException(status_code=500, detail="Server is not configured for Google OAuth.")
     
-    print(f"DEBUG: Using REDIRECT_URI: {REDIRECT_URI}")
     flow = Flow.from_client_config(client_config, scopes=SCOPES, redirect_uri=REDIRECT_URI)
     authorization_url, state = flow.authorization_url(
         access_type='offline', prompt='consent', include_granted_scopes='true')
     
-    print(f"DEBUG: Generated Authorization URL: {authorization_url}")
     return {"authorization_url": authorization_url}
+
 
 @app.get("/api/auth/callback")
 def auth_callback(request: Request):
@@ -399,9 +363,17 @@ def auth_callback(request: Request):
 
     credentials = flow.credentials
     try:
-        id_info = id_token.verify_oauth2_token(
-            credentials.id_token, google_requests.Request(), GOOGLE_CLIENT_ID)
-        
+        try:
+            id_info = id_token.verify_oauth2_token(
+                credentials.id_token, google_requests.Request(), GOOGLE_CLIENT_ID)
+        except ValueError as e:
+            if 'Token used too early' in str(e):
+                time.sleep(2)
+                id_info = id_token.verify_oauth2_token(
+                    credentials.id_token, google_requests.Request(), GOOGLE_CLIENT_ID)
+            else:
+                raise e
+
         user_id = id_info['sub']
         user_email = id_info.get('email')
 
@@ -422,14 +394,13 @@ def auth_callback(request: Request):
 
         user_ref.set(user_data, merge=True)
 
-        # Create access token
-        access_token_expires = timedelta(minutes=60) # Token expires in 60 minutes
+        access_token_expires = timedelta(minutes=60)
         now = datetime.utcnow()
         payload = {
             "sub": user_id,
             "exp": now + access_token_expires,
             "iat": now,
-            "nbf": now - timedelta(seconds=10) # 10 seconds in the past to avoid clock skew issues
+            "nbf": now - timedelta(seconds=10)
         }
         access_token = jwt.encode(
             payload,
@@ -437,7 +408,6 @@ def auth_callback(request: Request):
             algorithm="HS256"
         )
 
-        # Redirect to frontend with token in URL query parameter
         redirect_url = f"http://localhost:3000/?token={access_token}"
         return RedirectResponse(url=redirect_url)
 
@@ -445,5 +415,3 @@ def auth_callback(request: Request):
         raise HTTPException(status_code=401, detail=f"Invalid token: {e}")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"An error occurred during data processing: {e}")
-
-# ... (Placeholder endpoints remain the same) ...
