@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import axios from 'axios';
 
 // --- Type Definitions ---
@@ -11,36 +11,105 @@ type Slot = {
   status: 'available' | 'booked';
 };
 
-type GroupedSlots = {
-  [date: string]: Slot[];
-};
+// --- Date & Time Utilities ---
+const getWeekDates = (viewDate: Date): Date[] => {
+  const startOfWeek = new Date(viewDate);
+  const day = startOfWeek.getDay();
+  const diff = startOfWeek.getDate() - day + (day === 0 ? -6 : 1); // Adjust for Sunday
+  startOfWeek.setDate(diff);
 
-// --- Helper Functions ---
-const groupSlotsByDate = (slots: Slot[]): GroupedSlots => {
-  return slots.reduce((acc, slot) => {
-    const date = new Date(slot.startTime).toLocaleDateString(undefined, {
-      weekday: 'long',
-      year: 'numeric',
-      month: 'long',
-      day: 'numeric',
-    });
-    if (!acc[date]) {
-      acc[date] = [];
-    }
-    acc[date].push(slot);
-    return acc;
-  }, {} as GroupedSlots);
-};
-
-const formatTime = (dateString: string): string => {
-  return new Date(dateString).toLocaleTimeString(undefined, {
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: false,
+  return Array.from({ length: 7 }).map((_, i) => {
+    const date = new Date(startOfWeek);
+    date.setDate(startOfWeek.getDate() + i);
+    return date;
   });
 };
 
-// --- Main Component ---
+const generateTimeIntervals = (startHour: number, endHour: number, intervalMinutes: number): string[] => {
+  const times: string[] = [];
+  for (let hour = startHour; hour < endHour; hour++) {
+    for (let minute = 0; minute < 60; minute += intervalMinutes) {
+      times.push(`${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`);
+    }
+  }
+  return times;
+};
+
+// --- Calendar Components ---
+const CalendarView = ({ slots }: { slots: Slot[] }) => {
+  const [viewDate, setViewDate] = useState(new Date());
+
+  const weekDates = useMemo(() => getWeekDates(viewDate), [viewDate]);
+  const timeIntervals = useMemo(() => generateTimeIntervals(9, 18, 30), []);
+
+  const slotsMap = useMemo(() => {
+    const map = new Map<string, Slot>();
+    for (const slot of slots) {
+      map.set(new Date(slot.startTime).toISOString(), slot);
+    }
+    return map;
+  }, [slots]);
+
+  const changeWeek = (direction: 'next' | 'prev') => {
+    setViewDate(current => {
+      const newDate = new Date(current);
+      newDate.setDate(current.getDate() + (direction === 'next' ? 7 : -7));
+      return newDate;
+    });
+  };
+
+  return (
+    <div className="bg-white p-4 sm:p-6 rounded-lg shadow-lg">
+      {/* Calendar Controls */}
+      <div className="flex justify-between items-center mb-4">
+        <button onClick={() => changeWeek('prev')} className="px-4 py-2 bg-gray-200 rounded-lg hover:bg-gray-300">‹ Prev</button>
+        <h3 className="text-lg sm:text-xl font-semibold">
+          {weekDates[0].toLocaleDateString(undefined, { month: 'long', day: 'numeric' })} - {weekDates[6].toLocaleDateString(undefined, { month: 'long', day: 'numeric', year: 'numeric' })}
+        </h3>
+        <button onClick={() => changeWeek('next')} className="px-4 py-2 bg-gray-200 rounded-lg hover:bg-gray-300">Next ›</button>
+      </div>
+
+      {/* Calendar Grid */}
+      <div className="grid grid-cols-[auto_1fr] sm:grid-cols-[auto_repeat(7,1fr)] gap-1">
+        {/* Time Gutter */}
+        <div className="col-start-1"></div>
+        {/* Day Headers */}
+        {weekDates.map(date => (
+          <div key={date.toISOString()} className="text-center font-semibold py-2">
+            <div className="text-sm sm:text-base">{date.toLocaleDateString(undefined, { weekday: 'short' })}</div>
+            <div className="text-lg sm:text-2xl">{date.getDate()}</div>
+          </div>
+        ))}
+
+        {/* Time Slots */}
+        {timeIntervals.map(time => (
+          <div key={time} className="grid grid-cols-subgrid col-span-full -mt-px">
+            <div className="text-right text-xs pr-2 text-gray-500 relative -top-2">{time}</div>
+            {weekDates.map(day => {
+              const slotDate = new Date(day);
+              const [hour, minute] = time.split(':').map(Number);
+              slotDate.setHours(hour, minute, 0, 0);
+              const slotISO = slotDate.toISOString();
+              const slot = slotsMap.get(slotISO);
+
+              return (
+                <div key={day.toISOString() + time} className="h-12 border-t border-gray-200 bg-gray-50">
+                  {slot && (
+                    <div className="bg-blue-500 text-white text-xs rounded-md p-1 m-1 h-full flex items-center justify-center cursor-pointer hover:bg-blue-600">
+                      {time}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+};
+
+// --- Main Page Component ---
 export default function Home() {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [syncStatus, setSyncStatus] = useState('');
@@ -56,7 +125,6 @@ export default function Home() {
       setIsLoading(false);
       return;
     }
-
     try {
       const response = await axios.get(`${process.env.NEXT_PUBLIC_API_BASE_URL}/api/user/me/slots`, {
         headers: { Authorization: `Bearer ${token}` },
@@ -73,13 +141,11 @@ export default function Home() {
   useEffect(() => {
     const tokenInUrl = new URLSearchParams(window.location.search).get('token');
     let currentToken = localStorage.getItem('jwt_token');
-
     if (tokenInUrl) {
       localStorage.setItem('jwt_token', tokenInUrl);
       currentToken = tokenInUrl;
       window.history.replaceState({}, document.title, "/");
     }
-
     if (currentToken) {
       setIsLoggedIn(true);
       fetchSlots();
@@ -114,7 +180,6 @@ export default function Home() {
       setSyncStatus('Authentication error. Please log in again.');
       return;
     }
-
     try {
       const response = await axios.post(
         `${process.env.NEXT_PUBLIC_API_BASE_URL}/api/user/me/slots/generate`,
@@ -122,7 +187,7 @@ export default function Home() {
         { headers: { Authorization: `Bearer ${token}` } }
       );
       setSyncStatus(response.data.message || 'Synchronization completed successfully!');
-      await fetchSlots(); // Refresh slots after syncing
+      await fetchSlots();
     } catch (err) {
       console.error('Error during calendar sync:', err);
       const errorMsg = axios.isAxiosError(err) && err.response ? err.response.data.detail : 'An unexpected error occurred.';
@@ -177,31 +242,13 @@ export default function Home() {
           )}
         </div>
 
-        <div className="bg-white p-6 rounded-lg shadow-lg">
-          <h2 className="text-2xl font-bold mb-4">Your Available Slots</h2>
-          {isLoading ? (
-            <p>Loading your schedule...</p>
-          ) : error ? (
-            <p className="text-red-500">{error}</p>
-          ) : slots.length > 0 ? (
-            <div className="space-y-6">
-              {Object.entries(groupSlotsByDate(slots)).map(([date, dateSlots]) => (
-                <div key={date}>
-                  <h3 className="text-lg font-semibold text-gray-700 border-b-2 border-gray-200 pb-2 mb-3">{date}</h3>
-                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
-                    {dateSlots.map((slot) => (
-                      <div key={slot.slotId} className="bg-blue-100 text-blue-800 text-center p-3 rounded-lg shadow-sm">
-                        {formatTime(slot.startTime)} - {formatTime(slot.endTime)}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <p>No available slots found. Try syncing your calendar!</p>
-          )}
-        </div>
+        {isLoading ? (
+          <div className="text-center"><p>Loading your schedule...</p></div>
+        ) : error ? (
+          <div className="text-center text-red-500"><p>{error}</p></div>
+        ) : (
+          <CalendarView slots={slots} />
+        )}
       </div>
     </main>
   );
