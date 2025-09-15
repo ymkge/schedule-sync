@@ -269,11 +269,14 @@ def generate_user_slots(user_id: str = Depends(get_current_user)):
         user_timezone = pytz.timezone('Asia/Tokyo') # TODO: Make this configurable
 
         # --- Step 3: Parse busy intervals into datetime objects ---
+        # Python < 3.11 doesn't support 'Z' suffix for UTC timezone, so we replace it.
         busy_times = []
         for interval in busy_intervals_raw:
+            start_str = interval['start'].replace('Z', '+00:00')
+            end_str = interval['end'].replace('Z', '+00:00')
             busy_times.append({
-                'start': datetime.fromisoformat(interval['start']),
-                'end': datetime.fromisoformat(interval['end'])
+                'start': datetime.fromisoformat(start_str),
+                'end': datetime.fromisoformat(end_str)
             })
 
         # --- Step 4: Generate all potential slots and filter them ---
