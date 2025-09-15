@@ -282,7 +282,7 @@ def generate_user_slots(user_id: str = Depends(get_current_user)):
         # --- Step 4: Generate all potential slots and filter them ---
         available_slots = []
         today = datetime.now(user_timezone).date()
-        for i in range(21): # For the next 3 weeks
+        for i in range(14): # For the next 2 weeks
             current_day = today + timedelta(days=i)
             
             # Skip non-working days
