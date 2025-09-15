@@ -194,7 +194,7 @@ def create_booking(req: BookingRequest):
         raise HTTPException(status_code=500, detail=f"An unexpected error occurred: {e}")
 
 
-@app.post("/api/user/me/slots")
+@app.post("/api/user/me/slots/generate")
 def generate_user_slots(user_id: str = Depends(get_current_user)):
     if not db:
         raise HTTPException(status_code=500, detail="Firestore client not available.")
@@ -302,6 +302,20 @@ def generate_user_slots(user_id: str = Depends(get_current_user)):
     except HttpError as error:
         print(f'An error occurred: {error}')
         raise HTTPException(status_code=500, detail=f"Google Calendar API error: {error}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"An unexpected error occurred: {e}")
+
+
+@app.get("/api/user/me/slots")
+def get_user_slots(user_id: str = Depends(get_current_user)):
+    if not db:
+        raise HTTPException(status_code=500, detail="Firestore client not available.")
+    try:
+        slots_ref = db.collection('slots').document(user_id)
+        slots_doc = slots_ref.get()
+        if not slots_doc.exists:
+            return {"slots": []}
+        return {"slots": slots_doc.to_dict().get('slots', [])}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"An unexpected error occurred: {e}")
 
