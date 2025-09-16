@@ -41,7 +41,40 @@ Schedule Syncは、CalendlyやSpirのような日程調整アプリケーショ�
 
 ### 1. バックエンドのセットアップ
 
-(変更なし)
+1.  **バックエンドディレクトリに移動します:**
+    ```bash
+    cd backend
+    ```
+
+2.  **Pythonの仮想環境を作成・有効化します:**
+    ```bash
+    python -m venv venv
+    source venv/bin/activate
+    ```
+    *Windowsの場合は `venv\Scripts\activate` を実行します。*
+
+3.  **必要なライブラリをインストールします:**
+    ```bash
+    pip install -r requirements.txt
+    ```
+
+4.  **環境変数を設定します:**
+    - `backend`ディレクトリにある`.env.example`ファイルをコピーして、`.env`という名前のファイルを作成します。
+    - `.env`ファイルを開き、Google Cloudプロジェクトから取得した認証情報（`GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`）と、ご自身のデータベース設定（`FIRESTORE_PROJECT_ID`）を記述します。
+    - `JWT_SECRET_KEY`には、任意の長いランダムな文字列を設定してください（例: `openssl rand -hex 32` で生成）。
+      ```
+      GOOGLE_CLIENT_ID="YOUR_GOOGLE_CLIENT_ID"
+      GOOGLE_CLIENT_SECRET="YOUR_GOOGLE_CLIENT_SECRET"
+      REDIRECT_URI="http://localhost:3000"
+      SECRET_KEY="YOUR_SUPER_SECRET_KEY"
+      FIRESTORE_PROJECT_ID="YOUR_FIRESTORE_PROJECT_ID"
+      ```
+
+5.  **バックエンドサーバーを起動します:**
+    ```bash
+    uvicorn main:app --host 0.0.0.0 --port 8080 --reload
+    ```
+    サーバーが `http://127.0.0.1:8080` で起動します。
 
 ### 2. フロントエンドのセットアップ
 
