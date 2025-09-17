@@ -61,12 +61,13 @@ Schedule Syncは、CalendlyやSpirのような日程調整アプリケーショ�
 4.  **環境変数を設定します:**
     - `backend`ディレクトリにある`.env.example`ファイルをコピーして、`.env`という名前のファイルを作成します。
     - `.env`ファイルを開き、Google Cloudプロジェクトから取得した認証情報（`GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`）と、ご自身のデータベース設定（`FIRESTORE_PROJECT_ID`）を記述します。
-    - `JWT_SECRET_KEY`には、任意の長いランダムな文字列を設定してください（例: `openssl rand -hex 32` で生成）。
+    - `JWT_SECRET_KEY` と `FERNET_KEY` には、それぞれ異なるセキュアなキーを設定します。`.env.example` に記載のコマンドを参考に生成してください。
       ```
       GOOGLE_CLIENT_ID="YOUR_GOOGLE_CLIENT_ID"
       GOOGLE_CLIENT_SECRET="YOUR_GOOGLE_CLIENT_SECRET"
-      REDIRECT_URI="http://localhost:3000"
-      SECRET_KEY="YOUR_SUPER_SECRET_KEY"
+      REDIRECT_URI="http://localhost:8080/api/auth/callback"
+      JWT_SECRET_KEY="YOUR_JWT_SECRET_KEY"
+      FERNET_KEY="YOUR_FERNET_ENCRYPTION_KEY"
       FIRESTORE_PROJECT_ID="YOUR_FIRESTORE_PROJECT_ID"
       ```
 
@@ -114,8 +115,8 @@ Schedule Syncは、CalendlyやSpirのような日程調整アプリケーショ�
 - [x] **ユーザー設定機能の実装:**
     - 予約可能な時間帯（例: 9:00-17:00）を設定する機能。
     - 予約枠の長さ（例: 30分、60分）を変更する機能。
-- [ ] **`.env.example` の更新:** `SECRET_KEY` の記述を現在の実装に合わせる。
-- [ ] **セキュリティ向上:** 現在JWTの署名と内部データの暗号化で共用している `SECRET_KEY` を、それぞれ別のキー (`JWT_SECRET_KEY`, `FERNET_KEY`) に分離する。
+- [x] **`.env.example` の更新:** `SECRET_KEY` の記述を現在の実装に合わせる。
+- [x] **セキュリティ向上:** 現在JWTの署名と内部データの暗号化で共用している `SECRET_KEY` を、それぞれ別のキー (`JWT_SECRET_KEY`, `FERNET_KEY`) に分離する。
 
 ---
 

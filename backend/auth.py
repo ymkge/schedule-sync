@@ -7,7 +7,7 @@ from dotenv import load_dotenv
 # Load environment variables from .env file
 load_dotenv()
 
-SECRET_KEY = os.getenv("SECRET_KEY")
+JWT_SECRET_KEY = os.getenv("JWT_SECRET_KEY")
 ALGORITHM = "HS256"
 
 # This will look for a token in the "Authorization: Bearer <token>" header
@@ -32,10 +32,10 @@ def get_current_user(token: str = Depends(oauth2_scheme)):
         headers={"WWW-Authenticate": "Bearer"},
     )
     try:
-        if SECRET_KEY is None:
-            raise ValueError("SECRET_KEY is not set in the environment.")
+        if JWT_SECRET_KEY is None:
+            raise ValueError("JWT_SECRET_KEY is not set in the environment.")
             
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM], leeway=10)
+        payload = jwt.decode(token, JWT_SECRET_KEY, algorithms=[ALGORITHM], leeway=10)
         user_id: str = payload.get("sub")
         if user_id is None:
             raise credentials_exception

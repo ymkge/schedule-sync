@@ -1,7 +1,7 @@
 import os
 import base64
 import time
-from fastapi import FastAPI, HTTPException, Request, Depends
+from fastapi import FastAPI, HTTPException, Request, Depends, status
 from starlette.responses import RedirectResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
@@ -52,18 +52,19 @@ except Exception as e:
 GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID")
 GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET")
 REDIRECT_URI = os.getenv("REDIRECT_URI")
-SECRET_KEY = os.getenv("SECRET_KEY")
+JWT_SECRET_KEY = os.getenv("JWT_SECRET_KEY")
+FERNET_KEY = os.getenv("FERNET_KEY")
 
 # --- Encryption ---
 try:
-    if SECRET_KEY:
-        f_key = Fernet(SECRET_KEY.encode())
+    if FERNET_KEY:
+        f_key = Fernet(FERNET_KEY.encode())
     else:
         f_key = None
-        print("CRITICAL: SECRET_KEY is not set. Encryption is disabled.")
+        print("CRITICAL: FERNET_KEY is not set. Encryption is disabled.")
 except Exception as e:
     f_key = None
-    print(f"CRITICAL: Invalid SECRET_KEY. It must be a 32-byte URL-safe base64 string. Error: {e}")
+    print(f"CRITICAL: Invalid FERNET_KEY. It must be a 32-byte URL-safe base64 string. Error: {e}")
 
 def encrypt_token(token: str) -> str:
     if not token or not f_key: return None
@@ -420,10 +421,10 @@ def auth_callback(request: Request):
             user_data['encryptedRefreshToken'] = encrypt_token(credentials.refresh_token)
         
         user_ref = db.collection('users').document(user_id)
-        if not user_ref.get().exists:
-            user_data['createdAt'] = firestore.SERVER_TIMESTAMP
-            user_data['publicUrlToken'] = base64.urlsafe_b64encode(os.urandom(16)).decode()
-            # Default settings for new users
+        user_doc = user_ref.get()
+
+        # Add default settings if they don't exist (for both new and existing users)
+        if not user_doc.exists or not user_doc.to_dict().get('settings'):
             user_data['settings'] = {
                 'workingHours': {'start': '09:00', 'end': '17:00'},
                 'slotDuration': 30,
@@ -431,6 +432,10 @@ def auth_callback(request: Request):
                 'timezone': 'Asia/Tokyo',
                 'workingDays': [0, 1, 2, 3, 4] # Monday to Friday
             }
+
+        if not user_doc.exists:
+            user_data['createdAt'] = firestore.SERVER_TIMESTAMP
+            user_data['publicUrlToken'] = base64.urlsafe_b64encode(os.urandom(16)).decode()
 
         user_ref.set(user_data, merge=True)
 
@@ -444,7 +449,7 @@ def auth_callback(request: Request):
         }
         access_token = jwt.encode(
             payload,
-            SECRET_KEY,
+            JWT_SECRET_KEY,
             algorithm="HS256"
         )
 
@@ -459,24 +464,6 @@ def auth_callback(request: Request):
 @app.get("/")
 def read_root():
     return {"message": "Welcome to the Schedule Sync API"}
-
-@app.get("/api/user/me", response_model=dict)
-def read_user_me(current_user_id: str = Depends(get_current_user)):
-    if not db:
-        raise HTTPException(status_code=500, detail="Firestore client not available.")
-    
-    user_ref = db.collection('users').document(current_user_id)
-    user_doc = user_ref.get()
-    if not user_doc.exists:
-        raise HTTPException(status_code=404, detail="User not found")
-    
-    user_data = user_doc.to_dict()
-    # Return a subset of user data, excluding sensitive info
-    return {
-        "userId": user_data.get('userId'),
-        "email": user_data.get('email'),
-        "publicUrlToken": user_data.get('publicUrlToken'),
-    }
 
 @app.get("/api/user/me/settings", response_model=UserSettings)
 def get_user_settings(current_user_id: str = Depends(get_current_user)):
@@ -505,3 +492,21 @@ def update_user_settings(settings: UserSettings, current_user_id: str = Depends(
     user_ref.set({'settings': settings.dict()}, merge=True)
     
     return
+
+@app.get("/api/user/me", response_model=dict)
+def read_user_me(current_user_id: str = Depends(get_current_user)):
+    if not db:
+        raise HTTPException(status_code=500, detail="Firestore client not available.")
+    
+    user_ref = db.collection('users').document(current_user_id)
+    user_doc = user_ref.get()
+    if not user_doc.exists:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    user_data = user_doc.to_dict()
+    # Return a subset of user data, excluding sensitive info
+    return {
+        "userId": user_data.get('userId'),
+        "email": user_data.get('email'),
+        "publicUrlToken": user_data.get('publicUrlToken'),
+    }
