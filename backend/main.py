@@ -4,7 +4,8 @@ import time
 from fastapi import FastAPI, HTTPException, Request, Depends
 from starlette.responses import RedirectResponse
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
+from typing import Optional
 from dotenv import load_dotenv
 
 from google.cloud import firestore
@@ -89,6 +90,15 @@ client_config = {
     }
 } if GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET else None
 
+# --- Pydantic Models ---
+class WorkingHours(BaseModel):
+    start: str = Field(..., pattern=r"^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$")
+    end: str = Field(..., pattern=r"^([0-1]?[0-9]|2[0-3]):[0-5][0-9]$")
+
+class UserSettings(BaseModel):
+    workingHours: WorkingHours
+    slotDuration: int = Field(..., gt=0) # Duration in minutes
+
 class BookingRequest(BaseModel):
     publicUrlToken: str
     slotId: str # The startTime of the slot acts as its unique ID
@@ -154,10 +164,13 @@ def create_booking(req: BookingRequest):
         
         slot_start_time = datetime.fromisoformat(booked_slot['startTime'])
         slot_end_time = datetime.fromisoformat(booked_slot['endTime'])
-        event_name = host_user_data.get('slotConfig', {}).get('eventName', 'Meeting')
+        
+        # Use event name from user settings, with a fallback
+        settings = host_user_data.get('settings', {})
+        event_name = settings.get('eventName', 'Meeting')
 
         event_body = {
-            'summary': f"{event_name} ({req.bookerName})",
+            'summary': f"{event_name} with {req.bookerName}",
             'start': {'dateTime': slot_start_time.isoformat(), 'timeZone': str(slot_start_time.tzinfo)},
             'end': {'dateTime': slot_end_time.isoformat(), 'timeZone': str(slot_end_time.tzinfo)},
             'attendees': [
@@ -239,13 +252,19 @@ def generate_user_slots(user_id: str = Depends(get_current_user)):
         results = service.freebusy().query(body=free_busy_body).execute()
         busy_intervals_raw = results['calendars']['primary']['busy']
 
+        # Get settings from user data, with defaults
+        settings = user_data.get('settings', {})
+        working_hours_setting = settings.get('workingHours', {'start': '09:00', 'end': '17:00'})
+        
         working_hours = {
-            'start': dt_time(9, 0), 
-            'end': dt_time(17, 0)
+            'start': dt_time.fromisoformat(working_hours_setting['start']),
+            'end': dt_time.fromisoformat(working_hours_setting['end'])
         }
-        working_days = [0, 1, 2, 3, 4]
-        slot_duration = timedelta(minutes=30)
-        user_timezone = pytz.timezone('Asia/Tokyo')
+        working_days = settings.get('workingDays', [0, 1, 2, 3, 4]) # Mon-Fri
+        slot_duration_minutes = settings.get('slotDuration', 30)
+        slot_duration = timedelta(minutes=slot_duration_minutes)
+        user_timezone = pytz.timezone(settings.get('timezone', 'Asia/Tokyo'))
+
 
         busy_times = []
         for interval in busy_intervals_raw:
@@ -404,7 +423,14 @@ def auth_callback(request: Request):
         if not user_ref.get().exists:
             user_data['createdAt'] = firestore.SERVER_TIMESTAMP
             user_data['publicUrlToken'] = base64.urlsafe_b64encode(os.urandom(16)).decode()
-            user_data['slotConfig'] = {'durationMinutes': 30, 'eventName': 'Meeting'}
+            # Default settings for new users
+            user_data['settings'] = {
+                'workingHours': {'start': '09:00', 'end': '17:00'},
+                'slotDuration': 30,
+                'eventName': 'Meeting',
+                'timezone': 'Asia/Tokyo',
+                'workingDays': [0, 1, 2, 3, 4] # Monday to Friday
+            }
 
         user_ref.set(user_data, merge=True)
 
@@ -429,3 +455,53 @@ def auth_callback(request: Request):
         raise HTTPException(status_code=401, detail=f"Invalid token: {e}")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"An error occurred during data processing: {e}")
+
+@app.get("/")
+def read_root():
+    return {"message": "Welcome to the Schedule Sync API"}
+
+@app.get("/api/user/me", response_model=dict)
+def read_user_me(current_user_id: str = Depends(get_current_user)):
+    if not db:
+        raise HTTPException(status_code=500, detail="Firestore client not available.")
+    
+    user_ref = db.collection('users').document(current_user_id)
+    user_doc = user_ref.get()
+    if not user_doc.exists:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    user_data = user_doc.to_dict()
+    # Return a subset of user data, excluding sensitive info
+    return {
+        "userId": user_data.get('userId'),
+        "email": user_data.get('email'),
+        "publicUrlToken": user_data.get('publicUrlToken'),
+    }
+
+@app.get("/api/user/me/settings", response_model=UserSettings)
+def get_user_settings(current_user_id: str = Depends(get_current_user)):
+    if not db:
+        raise HTTPException(status_code=500, detail="Firestore client not available.")
+    
+    user_ref = db.collection('users').document(current_user_id)
+    user_doc = user_ref.get()
+    if not user_doc.exists:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    user_data = user_doc.to_dict()
+    settings = user_data.get("settings")
+    if not settings:
+        raise HTTPException(status_code=404, detail="Settings not found for user.")
+        
+    return UserSettings(**settings)
+
+@app.put("/api/user/me/settings", status_code=status.HTTP_204_NO_CONTENT)
+def update_user_settings(settings: UserSettings, current_user_id: str = Depends(get_current_user)):
+    if not db:
+        raise HTTPException(status_code=500, detail="Firestore client not available.")
+    
+    user_ref = db.collection('users').document(current_user_id)
+    # Use merge=True to update only the settings field
+    user_ref.set({'settings': settings.dict()}, merge=True)
+    
+    return

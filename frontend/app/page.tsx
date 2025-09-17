@@ -13,6 +13,14 @@ type Slot = {
   status: 'available' | 'booked';
 };
 
+type UserSettings = {
+  workingHours: {
+    start: string;
+    end: string;
+  };
+  slotDuration: number;
+};
+
 // --- Date & Time Utilities ---
 const getWeekDates = (viewDate: Date): Date[] => {
   const startOfWeek = new Date(viewDate);
@@ -113,6 +121,100 @@ const CalendarView = ({ slots }: { slots: Slot[] }) => {
   );
 };
 
+// --- Settings Component ---
+const SettingsView = ({ onSave, initialSettings, isLoading, error, clearError }: { 
+  onSave: (settings: UserSettings) => Promise<void>;
+  initialSettings: UserSettings | null;
+  isLoading: boolean;
+  error: string | null;
+  clearError: () => void;
+}) => {
+  const [settings, setSettings] = useState<UserSettings | null>(initialSettings);
+  const [isSaving, setIsSaving] = useState(false);
+
+  useEffect(() => {
+    setSettings(initialSettings);
+  }, [initialSettings]);
+
+  const timeOptions = Array.from({ length: 24 * 2 }, (_, i) => {
+    const hour = String(Math.floor(i / 2)).padStart(2, '0');
+    const minute = i % 2 === 0 ? '00' : '30';
+    return `${hour}:${minute}`;
+  });
+
+  const durationOptions = [15, 30, 45, 60];
+
+  const handleSave = async () => {
+    if (!settings) return;
+    setIsSaving(true);
+    await onSave(settings);
+    setIsSaving(false);
+  };
+
+  if (isLoading) {
+    return <div className="bg-white p-6 rounded-lg shadow-lg mb-6"><Spinner text="Loading settings..." /></div>;
+  }
+
+  if (!settings) {
+    // This can happen if there was an error or still loading, handled above
+    return null;
+  }
+
+  return (
+    <div className="bg-white p-6 rounded-lg shadow-lg mb-6">
+      <h2 className="text-2xl font-bold mb-4">Settings</h2>
+      
+      {error && <Alert message={error} type="error" onClose={clearError} />}
+
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        {/* Working Hours */}
+        <div className="col-span-1 md:col-span-2">
+          <label className="block text-sm font-medium text-gray-700 mb-2">Working Hours</label>
+          <div className="flex items-center gap-2">
+            <select
+              value={settings.workingHours.start}
+              onChange={e => setSettings(s => ({ ...s!, workingHours: { ...s!.workingHours, start: e.target.value } }))}
+              className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+            >
+              {timeOptions.map(time => <option key={`start-${time}`} value={time}>{time}</option>)}
+            </select>
+            <span className="text-gray-500">to</span>
+            <select
+              value={settings.workingHours.end}
+              onChange={e => setSettings(s => ({ ...s!, workingHours: { ...s!.workingHours, end: e.target.value } }))}
+              className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+            >
+              {timeOptions.map(time => <option key={`end-${time}`} value={time}>{time}</option>)}>
+            </select>
+          </div>
+        </div>
+        {/* Slot Duration */}
+        <div>
+          <label htmlFor="slotDuration" className="block text-sm font-medium text-gray-700 mb-2">Slot Duration</label>
+          <select
+            id="slotDuration"
+            value={settings.slotDuration}
+            onChange={e => setSettings(s => ({ ...s!, slotDuration: Number(e.target.value) }))}
+            className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+          >
+            {durationOptions.map(duration => <option key={duration} value={duration}>{duration} minutes</option>)}>
+          </select>
+        </div>
+      </div>
+      <div className="mt-6 flex justify-end">
+        <button
+          onClick={handleSave}
+          disabled={isSaving}
+          className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-lg shadow-md hover:shadow-lg transition duration-300 disabled:bg-gray-400"
+        >
+          {isSaving ? 'Saving...' : 'Save Settings'}
+        </button>
+      </div>
+    </div>
+  );
+};
+
+
 // --- Main Page Component ---
 export default function Home() {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
@@ -121,6 +223,10 @@ export default function Home() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [loginError, setLoginError] = useState<string | null>(null);
+
+  const [settings, setSettings] = useState<UserSettings | null>(null);
+  const [isSettingsLoading, setIsSettingsLoading] = useState(true);
+  const [settingsError, setSettingsError] = useState<string | null>(null);
 
   const fetchSlots = useCallback(async () => {
     setIsLoading(true);
@@ -143,6 +249,27 @@ export default function Home() {
     }
   }, []);
 
+  const fetchSettings = useCallback(async () => {
+    setIsSettingsLoading(true);
+    setSettingsError(null);
+    const token = localStorage.getItem('jwt_token');
+    if (!token) {
+      setIsSettingsLoading(false);
+      return;
+    }
+    try {
+      const response = await axios.get(`${process.env.NEXT_PUBLIC_API_BASE_URL}/api/user/me/settings`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      setSettings(response.data);
+    } catch (err) {
+      console.error('Failed to fetch settings:', err);
+      setSettingsError('Failed to load your settings. Default values will be used.');
+    } finally {
+      setIsSettingsLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     const tokenInUrl = new URLSearchParams(window.location.search).get('token');
     let currentToken = localStorage.getItem('jwt_token');
@@ -154,10 +281,12 @@ export default function Home() {
     if (currentToken) {
       setIsLoggedIn(true);
       fetchSlots();
+      fetchSettings();
     } else {
       setIsLoading(false);
+      setIsSettingsLoading(false);
     }
-  }, [fetchSlots]);
+  }, [fetchSlots, fetchSettings]);
 
   const handleLogin = async () => {
     setLoginError(null);
@@ -176,6 +305,27 @@ export default function Home() {
     setSlots([]);
     setSyncStatus(null);
     setError(null);
+    setSettings(null);
+    setSettingsError(null);
+  };
+
+  const handleSaveSettings = async (newSettings: UserSettings) => {
+    setSettingsError(null);
+    const token = localStorage.getItem('jwt_token');
+    if (!token) {
+      setSettingsError('Authentication error. Please log in again.');
+      return;
+    }
+    try {
+      await axios.put(`${process.env.NEXT_PUBLIC_API_BASE_URL}/api/user/me/settings`, newSettings, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      setSettings(newSettings);
+      setSyncStatus({ message: 'Settings saved successfully! You may need to re-sync to apply changes.', type: 'success' });
+    } catch (err) {
+      console.error('Failed to save settings:', err);
+      setSettingsError('Failed to save settings. Please try again.');
+    }
   };
 
   const handleSync = async () => {
@@ -253,6 +403,14 @@ export default function Home() {
             <Alert message={syncStatus.message} type={syncStatus.type} onClose={() => setSyncStatus(null)} />
           )}
         </div>
+
+        <SettingsView 
+          onSave={handleSaveSettings}
+          initialSettings={settings}
+          isLoading={isSettingsLoading}
+          error={settingsError}
+          clearError={() => setSettingsError(null)}
+        />
 
         {isLoading ? (
           <Spinner text="Loading your schedule..." />
