@@ -112,11 +112,21 @@ Schedule Syncは、CalendlyやSpirのような日程調整アプリケーショ�
 
 ## 今後の開発タスク (Next Steps)
 
-- [x] **ユーザー設定機能の実装:**
+### Step 4: リファクタリングとコード品質向上
+
+- [ ] **フロントエンドのコンポーネント分割 (続き):**
+    - `frontend/app/[token]/page.tsx` にある `BookingCalendarView` を `frontend/app/components/BookingCalendarView.tsx` に切り出す。
+- [ ] **バックエンドのルーティング分割:**
+    - `backend/main.py` を機能ごとに複数のファイルに分割し、FastAPIのAPIRouterを使用してルーティングを整理する。
+- [ ] **ユーザー設定の拡張:**
+    - ユーザーのタイムゾーン設定機能を追加し、スロット生成時に利用する。
+
+### 中長期タスク
+
+- [ ] **ユーザー設定機能の拡張:**
+    - 予約可能な曜日（例: 月〜金）を設定する機能。
     - 予約可能な時間帯（例: 9:00-17:00）を設定する機能。
     - 予約枠の長さ（例: 30分、60分）を変更する機能。
-- [x] **`.env.example` の更新:** `SECRET_KEY` の記述を現在の実装に合わせる。
-- [x] **セキュリティ向上:** 現在JWTの署名と内部データの暗号化で共用している `SECRET_KEY` を、それぞれ別のキー (`JWT_SECRET_KEY`, `FERNET_KEY`) に分離する。
 
 ---
 
@@ -130,6 +140,15 @@ Schedule Syncは、CalendlyやSpirのような日程調整アプリケーショ�
   - レスポンシブデザイン対応
   - エラーハンドリングの強化
   - ローディング表示の改善
+- ✅ **Step 4: ユーザー設定機能の実装**
+  - 予約可能な時間帯と予約枠の長さを設定する機能。
+- ✅ **Step 5: セキュリティ向上**
+  - JWT署名とデータ暗号化のキーを分離。
+- ✅ **Step 6: コードのリファクタリング (一部)**
+  - フロントエンドの日付・時間関連の共通ユーティリティ関数を `frontend/app/utils/date.ts` に切り出し。
+  - `frontend/app/types.ts` に共通型定義を切り出し。
+  - `frontend/app/components/CalendarView.tsx` を作成し、`CalendarView` コンポーネントを移動。
+  - `frontend/app/components/SettingsView.tsx` を作成し、`SettingsView` コンポーネントを移動。
 
 ## ライセンス
 
