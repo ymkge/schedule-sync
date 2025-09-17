@@ -2,6 +2,8 @@
 
 import { useState, useEffect, useCallback, useMemo, Fragment } from 'react';
 import axios from 'axios';
+import Spinner from '../components/Spinner';
+import Alert from '../components/Alert';
 
 // --- Type Definitions ---
 type Slot = {
@@ -79,24 +81,25 @@ const BookingCalendarView = ({ slots, onSlotClick, selectedSlotId }: { slots: Sl
     <div className="bg-white p-4 sm:p-6 rounded-lg shadow-lg">
       {/* Calendar Controls */}
       <div className="flex justify-between items-center mb-4">
-        <button onClick={() => changeWeek('prev')} className="px-4 py-2 bg-gray-200 rounded-lg hover:bg-gray-300">‹ Prev</button>
-        <h3 className="text-lg sm:text-xl font-semibold text-center">
-          {weekDates[0].toLocaleDateString(undefined, { month: 'long', day: 'numeric' })} - {weekDates[6].toLocaleDateString(undefined, { month: 'long', day: 'numeric', year: 'numeric' })}
+        <button onClick={() => changeWeek('prev')} className="px-3 py-2 bg-gray-200 rounded-lg hover:bg-gray-300 text-sm">‹ Prev</button>
+        <h3 className="text-base sm:text-xl font-semibold text-center mx-2 flex-grow">
+          {weekDates[0].toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} - {weekDates[6].toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
         </h3>
-        <button onClick={() => changeWeek('next')} className="px-4 py-2 bg-gray-200 rounded-lg hover:bg-gray-300">Next ›</button>
+        <button onClick={() => changeWeek('next')} className="px-3 py-2 bg-gray-200 rounded-lg hover:bg-gray-300 text-sm">Next ›</button>
       </div>
 
       {/* Calendar Grid */}
-      <div className="grid grid-cols-[auto_1fr] sm:grid-cols-[auto_repeat(7,1fr)] gap-1">
-        {/* Time Gutter */}
-        <div className="col-start-1"></div>
-        {/* Day Headers */}
-        {weekDates.map(date => (
-          <div key={date.toISOString()} className="text-center font-semibold py-2">
-            <div className="text-sm sm:text-base">{date.toLocaleDateString(undefined, { weekday: 'short' })}</div>
-            <div className="text-lg sm:text-2xl">{date.getDate()}</div>
-          </div>
-        ))}
+      <div className="overflow-x-auto">
+        <div className="grid grid-cols-[auto_repeat(7,1fr)] gap-1 min-w-[48rem]">
+          {/* Time Gutter */}
+          <div className="col-start-1"></div>
+          {/* Day Headers */}
+          {weekDates.map(date => (
+            <div key={date.toISOString()} className="text-center font-semibold py-2">
+              <div className="text-sm sm:text-base">{date.toLocaleDateString(undefined, { weekday: 'short' })}</div>
+              <div className="text-lg sm:text-2xl">{date.getDate()}</div>
+            </div>
+          ))}
 
         {/* Time Slots */}
         {timeIntervals.map(time => (
@@ -130,6 +133,7 @@ const BookingCalendarView = ({ slots, onSlotClick, selectedSlotId }: { slots: Sl
             })}
           </div>
         ))}
+        </div>
       </div>
     </div>
   );
@@ -148,7 +152,8 @@ export default function BookingPage({ params }: { params: { token: string } }) {
   const [bookerName, setBookerName] = useState('');
   const [bookerEmail, setBookerEmail] = useState('');
   const [isBooking, setIsBooking] = useState(false);
-  const [bookingResult, setBookingResult] = useState<string | null>(null);
+  const [bookingResult, setBookingResult] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
+  const [formError, setFormError] = useState<string | null>(null);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -167,8 +172,9 @@ export default function BookingPage({ params }: { params: { token: string } }) {
 
   const handleBookingSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setFormError(null);
     if (!selectedSlot || !bookerName || !bookerEmail) {
-      alert('Please select a slot and fill in your details.');
+      setFormError('Please select a time slot and fill in your name and email.');
       return;
     }
     setIsBooking(true);
@@ -180,7 +186,10 @@ export default function BookingPage({ params }: { params: { token: string } }) {
         bookerName,
         bookerEmail,
       });
-      setBookingResult(`Booking confirmed for ${new Date(selectedSlot.startTime).toLocaleString()}! A calendar invitation has been sent to your email.`);
+      setBookingResult({
+        message: `Booking confirmed for ${new Date(selectedSlot.startTime).toLocaleString()}! A calendar invitation has been sent to your email.`,
+        type: 'success',
+      });
       // Refetch slots to show updated availability
       const updatedSlotsResult = await getPublicSlots(token);
       if (!updatedSlotsResult.error) {
@@ -191,33 +200,32 @@ export default function BookingPage({ params }: { params: { token: string } }) {
       setBookerEmail('');
     } catch (err: any) {
       console.error(err);
-      const errorMessage = err.response?.data?.detail || 'An unknown error occurred.';
-      setBookingResult(`Error: ${errorMessage}`);
+      const errorMessage = err.response?.data?.detail || 'An unknown error occurred during booking.';
+      setBookingResult({ message: errorMessage, type: 'error' });
     }
     setIsBooking(false);
   };
 
   if (isLoading) {
-    return <div className="text-center p-24">Loading booking page...</div>;
+    return <Spinner text="Loading booking page..." />;
   }
 
   if (error) {
     return (
-      <main className="flex min-h-screen flex-col items-center justify-center p-24 bg-gray-50">
-        <div className="text-center p-8 bg-white shadow-lg rounded-xl">
-          <h1 className="text-2xl font-bold text-red-600">Error</h1>
-          <p className="mt-4 text-gray-700">{error}</p>
+      <main className="flex min-h-screen flex-col items-center justify-center p-8 sm:p-24 bg-gray-50">
+        <div className="w-full max-w-md">
+          <Alert message={error} type="error" />
         </div>
       </main>
     );
   }
   
-  if (bookingResult && !bookingResult.startsWith('Error')) {
+  if (bookingResult && bookingResult.type === 'success') {
     return (
-      <main className="flex min-h-screen flex-col items-center justify-center p-24 bg-gray-50">
+      <main className="flex min-h-screen flex-col items-center justify-center p-8 sm:p-24 bg-gray-50">
         <div className="text-center p-8 bg-white shadow-lg rounded-xl max-w-lg">
           <h1 className="text-2xl font-bold text-green-600">Booking Confirmed!</h1>
-          <p className="mt-4 text-gray-700">{bookingResult}</p>
+          <p className="mt-4 text-gray-700">{bookingResult.message}</p>
           <button onClick={() => setBookingResult(null)} className="mt-6 px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">
             Book Another Meeting
           </button>
@@ -230,7 +238,7 @@ export default function BookingPage({ params }: { params: { token: string } }) {
     <main className="min-h-screen bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">
       <div className="max-w-4xl mx-auto">
         <div className="text-center mb-10">
-          <h1 className="text-3xl font-bold text-gray-900">Book a meeting with {userName}</h1>
+          <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">Book a meeting with {userName}</h1>
           <p className="mt-2 text-md text-gray-600">Select an available time slot from the calendar below.</p>
         </div>
 
@@ -257,6 +265,10 @@ export default function BookingPage({ params }: { params: { token: string } }) {
             
             <form onSubmit={handleBookingSubmit} className="mt-8 max-w-lg mx-auto">
               <div className="space-y-5">
+                {formError && <Alert message={formError} type="error" onClose={() => setFormError(null)} />}
+                {bookingResult && bookingResult.type === 'error' && (
+                  <Alert message={bookingResult.message} type="error" onClose={() => setBookingResult(null)} />
+                )}
                 <div>
                   <label htmlFor="name" className="block text-sm font-medium text-gray-700">Your Name</label>
                   <input type="text" id="name" value={bookerName} onChange={e => setBookerName(e.target.value)} required className="mt-1 block w-full px-4 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500" />
@@ -267,10 +279,6 @@ export default function BookingPage({ params }: { params: { token: string } }) {
                 </div>
               </div>
               
-              {bookingResult && bookingResult.startsWith('Error') && (
-                  <p className="mt-4 text-sm text-center text-red-600 bg-red-50 p-3 rounded-md">{bookingResult}</p>
-              )}
-
               <div className="mt-8 flex justify-end gap-4">
                 <button type="button" onClick={() => setSelectedSlot(null)} className="px-6 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 bg-white hover:bg-gray-50">
                   Cancel
@@ -286,3 +294,4 @@ export default function BookingPage({ params }: { params: { token: string } }) {
     </main>
   );
 }
+

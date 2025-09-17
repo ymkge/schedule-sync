@@ -2,6 +2,8 @@
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import axios from 'axios';
+import Spinner from './components/Spinner';
+import Alert from './components/Alert';
 
 // --- Type Definitions ---
 type Slot = {
@@ -62,48 +64,50 @@ const CalendarView = ({ slots }: { slots: Slot[] }) => {
     <div className="bg-white p-4 sm:p-6 rounded-lg shadow-lg">
       {/* Calendar Controls */}
       <div className="flex justify-between items-center mb-4">
-        <button onClick={() => changeWeek('prev')} className="px-4 py-2 bg-gray-200 rounded-lg hover:bg-gray-300">‹ Prev</button>
-        <h3 className="text-lg sm:text-xl font-semibold">
-          {weekDates[0].toLocaleDateString(undefined, { month: 'long', day: 'numeric' })} - {weekDates[6].toLocaleDateString(undefined, { month: 'long', day: 'numeric', year: 'numeric' })}
+        <button onClick={() => changeWeek('prev')} className="px-3 py-2 bg-gray-200 rounded-lg hover:bg-gray-300 text-sm">‹ Prev</button>
+        <h3 className="text-base sm:text-xl font-semibold text-center mx-2 flex-grow">
+          {weekDates[0].toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} - {weekDates[6].toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
         </h3>
-        <button onClick={() => changeWeek('next')} className="px-4 py-2 bg-gray-200 rounded-lg hover:bg-gray-300">Next ›</button>
+        <button onClick={() => changeWeek('next')} className="px-3 py-2 bg-gray-200 rounded-lg hover:bg-gray-300 text-sm">Next ›</button>
       </div>
 
       {/* Calendar Grid */}
-      <div className="grid grid-cols-[auto_1fr] sm:grid-cols-[auto_repeat(7,1fr)] gap-1">
-        {/* Time Gutter */}
-        <div className="col-start-1"></div>
-        {/* Day Headers */}
-        {weekDates.map(date => (
-          <div key={date.toISOString()} className="text-center font-semibold py-2">
-            <div className="text-sm sm:text-base">{date.toLocaleDateString(undefined, { weekday: 'short' })}</div>
-            <div className="text-lg sm:text-2xl">{date.getDate()}</div>
-          </div>
-        ))}
+      <div className="overflow-x-auto">
+        <div className="grid grid-cols-[auto_repeat(7,1fr)] gap-1 min-w-[48rem]">
+          {/* Time Gutter */}
+          <div className="col-start-1"></div>
+          {/* Day Headers */}
+          {weekDates.map(date => (
+            <div key={date.toISOString()} className="text-center font-semibold py-2">
+              <div className="text-sm sm:text-base">{date.toLocaleDateString(undefined, { weekday: 'short' })}</div>
+              <div className="text-lg sm:text-2xl">{date.getDate()}</div>
+            </div>
+          ))}
 
-        {/* Time Slots */}
-        {timeIntervals.map(time => (
-          <div key={time} className="grid grid-cols-subgrid col-span-full -mt-px">
-            <div className="text-right text-xs pr-2 text-gray-500 relative -top-2">{time}</div>
-            {weekDates.map(day => {
-              const slotDate = new Date(day);
-              const [hour, minute] = time.split(':').map(Number);
-              slotDate.setHours(hour, minute, 0, 0);
-              const slotISO = slotDate.toISOString();
-              const slot = slotsMap.get(slotISO);
+          {/* Time Slots */}
+          {timeIntervals.map(time => (
+            <div key={time} className="grid grid-cols-subgrid col-span-full -mt-px">
+              <div className="text-right text-xs pr-2 text-gray-500 relative -top-2">{time}</div>
+              {weekDates.map(day => {
+                const slotDate = new Date(day);
+                const [hour, minute] = time.split(':').map(Number);
+                slotDate.setHours(hour, minute, 0, 0);
+                const slotISO = slotDate.toISOString();
+                const slot = slotsMap.get(slotISO);
 
-              return (
-                <div key={day.toISOString() + time} className="h-12 border-t border-gray-200 bg-gray-50">
-                  {slot && (
-                    <div className="bg-blue-500 text-white text-xs rounded-md p-1 m-1 h-full flex items-center justify-center cursor-pointer hover:bg-blue-600">
-                      {time}
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        ))}
+                return (
+                  <div key={day.toISOString() + time} className="h-12 border-t border-gray-200 bg-gray-50">
+                    {slot && (
+                      <div className={`text-white text-xs rounded-md p-1 m-1 h-full flex items-center justify-center ${slot.status === 'booked' ? 'bg-red-400' : 'bg-blue-500'}`}>
+                        {time}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          ))}
+        </div>
       </div>
     </div>
   );
@@ -112,14 +116,15 @@ const CalendarView = ({ slots }: { slots: Slot[] }) => {
 // --- Main Page Component ---
 export default function Home() {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
-  const [syncStatus, setSyncStatus] = useState('');
+  const [syncStatus, setSyncStatus] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
   const [slots, setSlots] = useState<Slot[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const [loginError, setLoginError] = useState<string | null>(null);
 
   const fetchSlots = useCallback(async () => {
     setIsLoading(true);
-    setError('');
+    setError(null);
     const token = localStorage.getItem('jwt_token');
     if (!token) {
       setIsLoading(false);
@@ -155,12 +160,13 @@ export default function Home() {
   }, [fetchSlots]);
 
   const handleLogin = async () => {
+    setLoginError(null);
     try {
       const response = await axios.get(`${process.env.NEXT_PUBLIC_API_BASE_URL}/api/auth/login`);
       window.location.href = response.data.authorization_url;
     } catch (error) {
       console.error('Error during login:', error);
-      alert('Failed to initiate login.');
+      setLoginError('Failed to initiate login. Please try again later.');
     }
   };
 
@@ -168,16 +174,16 @@ export default function Home() {
     localStorage.removeItem('jwt_token');
     setIsLoggedIn(false);
     setSlots([]);
-    setSyncStatus('');
-    setError('');
+    setSyncStatus(null);
+    setError(null);
   };
 
   const handleSync = async () => {
-    setSyncStatus('Synchronizing, please wait...');
-    setError('');
+    setSyncStatus({ message: 'Synchronizing, please wait...', type: 'info' });
+    setError(null);
     const token = localStorage.getItem('jwt_token');
     if (!token) {
-      setSyncStatus('Authentication error. Please log in again.');
+      setSyncStatus({ message: 'Authentication error. Please log in again.', type: 'error' });
       return;
     }
     try {
@@ -186,24 +192,31 @@ export default function Home() {
         {},
         { headers: { Authorization: `Bearer ${token}` } }
       );
-      setSyncStatus(response.data.message || 'Synchronization completed successfully!');
+      setSyncStatus({ message: response.data.message || 'Synchronization completed successfully!', type: 'success' });
       await fetchSlots();
     } catch (err) {
       console.error('Error during calendar sync:', err);
       const errorMsg = axios.isAxiosError(err) && err.response ? err.response.data.detail : 'An unexpected error occurred.';
-      setSyncStatus(`Error: ${errorMsg}`);
+      setSyncStatus({ message: errorMsg, type: 'error' });
     }
   };
+
+  if (isLoading && !isLoggedIn) {
+      return <Spinner text="Loading login page..." />
+  }
 
   if (!isLoggedIn) {
     return (
       <main className="flex min-h-screen flex-col items-center justify-center p-8 bg-gray-100">
         <div className="text-center p-8 bg-white shadow-2xl rounded-lg max-w-md w-full">
-          <h1 className="text-4xl font-bold mb-4 text-gray-800">Welcome to Schedule Sync</h1>
-          <p className="text-lg mb-8 text-gray-600">Log in with Google to sync your calendar and create shareable booking links.</p>
+          <h1 className="text-3xl sm:text-4xl font-bold mb-4 text-gray-800">Welcome to Schedule Sync</h1>
+          <p className="text-lg mb-6 text-gray-600">Log in with Google to sync your calendar and create shareable booking links.</p>
+          
+          {loginError && <Alert message={loginError} type="error" onClose={() => setLoginError(null)} />}
+
           <button
             onClick={handleLogin}
-            className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-8 rounded-lg shadow-lg hover:shadow-xl transition-transform transform hover:-translate-y-1 duration-300 ease-in-out"
+            className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-8 rounded-lg shadow-lg hover:shadow-xl transition-transform transform hover:-translate-y-1 duration-300 ease-in-out mt-4"
           >
             Login with Google
           </button>
@@ -215,11 +228,11 @@ export default function Home() {
   return (
     <main className="min-h-screen bg-gray-100 text-gray-800">
       <header className="bg-white shadow-md">
-        <nav className="container mx-auto px-6 py-4 flex justify-between items-center">
+        <nav className="container mx-auto px-4 sm:px-6 py-4 flex flex-col sm:flex-row justify-between items-center gap-4">
           <h1 className="text-xl font-bold text-blue-600">Schedule Sync Dashboard</h1>
           <button
             onClick={handleLogout}
-            className="bg-red-500 hover:bg-red-600 text-white font-bold py-2 px-4 rounded-lg transition duration-300"
+            className="bg-red-500 hover:bg-red-600 text-white font-bold py-2 px-4 rounded-lg transition duration-300 w-full sm:w-auto"
           >
             Logout
           </button>
@@ -231,21 +244,20 @@ export default function Home() {
           <h2 className="text-2xl font-bold mb-4">Actions</h2>
           <button
             onClick={handleSync}
-            className="bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded-lg shadow-md hover:shadow-lg transition duration-300 w-full"
+            className="bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded-lg shadow-md hover:shadow-lg transition duration-300 w-full sm:w-auto"
           >
             Re-Sync Calendar
           </button>
+          
           {syncStatus && (
-            <p className="mt-4 text-md text-gray-700 bg-gray-100 p-3 rounded-lg">
-              {syncStatus}
-            </p>
+            <Alert message={syncStatus.message} type={syncStatus.type} onClose={() => setSyncStatus(null)} />
           )}
         </div>
 
         {isLoading ? (
-          <div className="text-center"><p>Loading your schedule...</p></div>
+          <Spinner text="Loading your schedule..." />
         ) : error ? (
-          <div className="text-center text-red-500"><p>{error}</p></div>
+          <Alert message={error} type="error" onClose={() => setError(null)} />
         ) : (
           <CalendarView slots={slots} />
         )}
